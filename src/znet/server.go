@@ -1,7 +1,6 @@
 package znet
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -10,22 +9,24 @@ import (
 
 // IServer 的接口实现, Server 需要实现 iServer 接口定义的三个方法
 type Server struct {
-	Name      string // 服务器名称
-	IPVersion string // tcp4 or other
-	IP        string // 服务器绑定的 IP 地址
-	Port      int    // 服务绑定的端口
+	Name      string         // 服务器名称
+	IPVersion string         // tcp4 or other
+	IP        string         // 服务器绑定的 IP 地址
+	Port      int            // 服务绑定的端口
+	Router    ziface.IRouter // 当前 Server 绑定的回调 Router
 }
 
-// 定义当前客户端连接的 handle API (业务函数)
-// 不难看出, 下面定义的这个函数的类型就是一个 ziface.iconnection 当中的 HandFunc 类型
-func CallBackToClient(conn *net.TCPConn, data []byte, cnt int) error {
-	// 回显业务
-	fmt.Println("[Conn Handle] CallBackToClient...")
-	if _, err := conn.Write(data[:cnt]); err != nil {
-		fmt.Println("Write back buf err ", err)
-		return errors.New("CallBackToClient error")
+// 创建服务器的句柄
+func NewServer(name string) ziface.IServer {
+	s := &Server{
+		Name:      name,
+		IPVersion: "tcp4",
+		IP:        "0.0.0.0",
+		Port:      7777,
+		Router:    nil,
 	}
-	return nil
+
+	return s
 }
 
 func (s *Server) Start() {
@@ -71,7 +72,7 @@ func (s *Server) Start() {
 			// 3.2. TODO: Server.Start() 设置服务器最大连接数, 超过最大连接则关闭这个新的连接
 
 			// 3.3. 处理新连接请求
-			dealConn := NewConnection(conn, cid, CallBackToClient)
+			dealConn := NewConnection(conn, cid, s.Router)
 			cid++
 
 			// 3.4. 启动当前连接, 处理业务
@@ -97,14 +98,9 @@ func (s *Server) Serve() {
 	}
 }
 
-// 创建服务器的句柄
-func NewServer(name string) ziface.IServer {
-	s := &Server{
-		Name:      name,
-		IPVersion: "tcp4",
-		IP:        "0.0.0.0",
-		Port:      7777,
-	}
+// 为 Server 实现添加路由的方法, 实际上就是将构造好的 router 作为参数传入
+func (s *Server) AddRouter(router ziface.IRouter) {
+	s.Router = router
 
-	return s
+	fmt.Println("Add Router succ!")
 }
