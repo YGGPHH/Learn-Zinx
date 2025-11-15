@@ -10,34 +10,14 @@ type PingRouter struct {
 	znet.BaseRouter // 嵌入 BaseRouter
 }
 
-// 实现 IRouter 的三个方法
-func (this *PingRouter) PreHandle(request ziface.IRequest) {
-	fmt.Println("Call Router PreHandle")
-	_, err := request.GetConnection().GetTCPConnection().Write(
-		[]byte("Before ping ...\n"),
-	)
-	if err != nil {
-		fmt.Println("Call back Ping Ping Ping error.")
-	}
-}
-
 func (this *PingRouter) Handle(request ziface.IRequest) {
 	fmt.Println("Call PingRouter Handle")
-	_, err := request.GetConnection().GetTCPConnection().Write(
-		[]byte("Ping... Ping... Ping...\n"),
-	)
-	if err != nil {
-		fmt.Println("Call back Ping Ping Ping error.")
-	}
-}
+	fmt.Println("Recv from client: msgId = ", request.GetMsgID(), ", data = ", string(request.GetData()))
 
-func (this *PingRouter) PostHandle(request ziface.IRequest) {
-	fmt.Println("Call Router PostHandle")
-	_, err := request.GetConnection().GetTCPConnection().Write(
-		[]byte("After Ping ...\n"),
-	)
+	// 回写数据
+	err := request.GetConnection().SendMsg(1, []byte("Ping... Ping... Ping..."))
 	if err != nil {
-		fmt.Println("Call back Ping Ping Ping error.")
+		fmt.Println("Server response error, err: ", err)
 	}
 }
 

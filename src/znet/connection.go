@@ -1,7 +1,9 @@
 package znet
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"zinx/src/ziface"
 )
@@ -34,19 +36,42 @@ func (c *Connection) StartReader() {
 	defer c.Stop()
 
 	for {
-		buf := make([]byte, 512)
-		_, err := c.Conn.Read(buf)
-		if err != nil {
-			fmt.Println("recv buf err ", err)
+		// 创建拆包解包对象
+		dp := NewDataPack()
+
+		// 读取客户端的 Msg Head
+		headData := make([]byte, dp.GetHeadLen())
+		if _, err := io.ReadFull(c.GetTCPConnection(), headData); err != nil {
+			fmt.Println("Read msg head error, ", err)
 			c.ExitBuffChan <- true
-			// 发生错误, 通过 Channel 关闭当前连接
 			continue
 		}
+
+		// 拆包, 得到 msgId 和 DataLen, 放到 msg 当中
+		msg, err := dp.Unpack(headData)
+		if err != nil {
+			fmt.Println("Unpack error, ", err)
+			c.ExitBuffChan <- true
+			continue
+		}
+
+		// 根据 DataLen 来读取 data, 放到 msg.Data 当中. 在 dp.Unpack 当中只获取数据部分的长度,
+		// 不负责获取数据. 获取数据的部分在 Connection 当中, 基于长度构建字节序列读取数据
+		var data []byte
+		if msg.GetDataLen() > 0 {
+			data = make([]byte, msg.GetDataLen())
+			if _, err := io.ReadFull(c.GetTCPConnection(), data); err != nil {
+				fmt.Println("Read message data error, ", err)
+				c.ExitBuffChan <- true
+				continue
+			}
+		}
+		msg.SetData(data)
 
 		// 构造当前 Request 的数据, 包含当前的连接 Conn 和数据 Data
 		req := Request{
 			conn: c,
-			data: buf,
+			msg:  msg,
 		}
 
 		go func(request ziface.IRequest) {
@@ -102,4 +127,26 @@ func (c *Connection) GetConnID() uint32 {
 // 获取远程客户端的地址信息
 func (c *Connection) RemoteAddr() net.Addr {
 	return c.Conn.RemoteAddr()
+}
+
+func (c *Connection) SendMsg(msgId uint32, data []byte) error {
+	if c.isClosed == true {
+		return errors.New("Connection closed when sending message...")
+	}
+	// 将 data 封包, 并且发送. 这就要求 Zinx 的客户端基于与 Zinx 服务器本身同样的方式进行拆包解包
+	dp := NewDataPack()
+	msg, err := dp.Pack(NewMsgPackage(msgId, data))
+	if err != nil {
+		fmt.Println("Pack error msg id = ", msgId) // 基于 msgId 可以定位到出问题的 msg
+		return errors.New("Pack error message.")
+	}
+
+	// 写回给客户端
+	if _, err := c.Conn.Write(msg); err != nil {
+		fmt.Println("Write msg id ", msgId, " error.")
+		c.ExitBuffChan <- true
+		return errors.New("Conn write error.")
+	}
+
+	return nil
 }
