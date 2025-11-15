@@ -1,6 +1,7 @@
 package znet
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -13,6 +14,18 @@ type Server struct {
 	IPVersion string // tcp4 or other
 	IP        string // 服务器绑定的 IP 地址
 	Port      int    // 服务绑定的端口
+}
+
+// 定义当前客户端连接的 handle API (业务函数)
+// 不难看出, 下面定义的这个函数的类型就是一个 ziface.iconnection 当中的 HandFunc 类型
+func CallBackToClient(conn *net.TCPConn, data []byte, cnt int) error {
+	// 回显业务
+	fmt.Println("[Conn Handle] CallBackToClient...")
+	if _, err := conn.Write(data[:cnt]); err != nil {
+		fmt.Println("Write back buf err ", err)
+		return errors.New("CallBackToClient error")
+	}
+	return nil
 }
 
 func (s *Server) Start() {
@@ -37,7 +50,13 @@ func (s *Server) Start() {
 			return
 		}
 
+		// 监听成功
 		fmt.Println("Start Zinx Server ", s.Name, " succ, now listenning...")
+
+		// TODO server.go 应该在此实现一个自动生成 ID 的方法
+		// 目前应该已经有现成的生成 uuid 的 Go 包
+		var cid uint32
+		cid = 0
 
 		// 3. 启动 Server 网络连接业务
 		for {
@@ -51,26 +70,12 @@ func (s *Server) Start() {
 
 			// 3.2. TODO: Server.Start() 设置服务器最大连接数, 超过最大连接则关闭这个新的连接
 
-			// 3.3. TODO: Server.Start() 处理该新连接请求的业务方法, 此时应该有 handler, 与 conn 绑定
+			// 3.3. 处理新连接请求
+			dealConn := NewConnection(conn, cid, CallBackToClient)
+			cid++
 
-			// 此时暂时只做 512 Bytes 的字节回显
-			go func() {
-				// 从客户端获取数据
-				for {
-					buf := make([]byte, 512)
-					cnt, err := conn.Read(buf)
-					if err != nil {
-						fmt.Println("recv buf err: ", err)
-						continue
-					}
-
-					// 回显
-					if _, err := conn.Write(buf[:cnt]); err != nil {
-						fmt.Println("Write back buf err: ", err)
-						continue
-					}
-				}
-			}()
+			// 3.4. 启动当前连接, 处理业务
+			go dealConn.Start()
 		}
 	}()
 }
